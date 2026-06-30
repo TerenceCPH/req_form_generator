@@ -4,11 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Requisition Form Generator</title>
+
+    <script>
+        (function() {
+            function patchNamespaceURI(proto) {
+                if (!proto) return;
+                const desc = Object.getOwnPropertyDescriptor(proto, 'namespaceURI');
+                if (desc && desc.configurable && !desc.set) {
+                    Object.defineProperty(proto, 'namespaceURI', {
+                        get: desc.get,
+                        set: function(val) { /* Silently ignore to prevent TypeError */ },
+                        configurable: true
+                    });
+                }
+            }
+            if (typeof Element !== 'undefined') patchNamespaceURI(Element.prototype);
+            if (typeof Node !== 'undefined') patchNamespaceURI(Node.prototype);
+            if (typeof Attr !== 'undefined') patchNamespaceURI(Attr.prototype);
+        })();
+    </script>
+
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" crossorigin="anonymous"></script>
-    
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js" crossorigin="anonymous"></script>
-    
     <script src="https://unpkg.com/pizzip@3.1.7/dist/pizzip.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/docxtemplater@3.45.0/build/docxtemplater.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/docxtemplater-image-module-free@1.1.1/build/imagemodule.js" crossorigin="anonymous"></script>
@@ -74,17 +92,6 @@
     </div>
 
     <script>
-        // Fix for docxtemplater-image-module-free read-only namespaceURI bug
-        (function() {
-            const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'namespaceURI');
-            if (desc && desc.configurable) {
-                Object.defineProperty(Element.prototype, 'namespaceURI', {
-                    get: desc.get,
-                    set: function(val) { /* Safely ignore the assignment to prevent strict-mode crash */ },
-                    configurable: true
-                });
-            }
-        })();
         let parsedCsvData = [];
         let rawCsvFileContent = null;
         let signatureBase64 = null;
