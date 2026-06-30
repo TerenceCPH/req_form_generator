@@ -11,6 +11,7 @@
     
     <script src="https://unpkg.com/pizzip@3.1.7/dist/pizzip.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/docxtemplater@3.45.0/build/docxtemplater.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/docxtemplater-image-module-free@1.1.1/build/imagemodule.js" crossorigin="anonymous"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans p-6">
 
@@ -88,6 +89,9 @@
         const downloadSection = document.getElementById('downloadSection');
         const previewSection = document.getElementById('previewSection');
         const previewTableBody = document.getElementById('previewTableBody');
+
+        // Transparent 1x1 PNG Base64 to safely fallback missing signatures in docxtemplater
+        const BLANK_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
         // Parse and preview CSV dynamically when chosen
         document.getElementById('csvFile').addEventListener('change', function(e) {
@@ -262,60 +266,38 @@
             setupDownloadActions(name);
         }
 
-        // Native injection module directly attached to resolve external library drops
-        function getNativeInlineImageModule() {
-            return {
-                set: function(obj) { this.options = obj; },
-                optionsTransformer: function(options, docxtemplater) {
-                    const relsModifier = {
-                        class: class {
-                            parse(zip) { this.zip = zip; }
-                            postrender(parts) {
-                                // Scans document text nodes dynamically for signature tags
-                                parts.forEach(part => {
-                                    if (part.type === 'placeholder' && part.value === '%SIGNATURE' && signatureBase64) {
-                                        const maxWidth = 150;
-                                        const scaleFactor = signatureWidth > maxWidth ? maxWidth / signatureWidth : 1;
-                                        const w = Math.round(signatureWidth * scaleFactor);
-                                        const h = Math.round(signatureHeight * scaleFactor);
-                                        
-                                        // Standard OpenXML container schema for embedding inline binary elements safely
-                                        const cx = w * 9525; 
-                                        const cy = h * 9525;
-                                        
-                                        part.type = 'content';
-                                        part.value = `<w:p><w:r><w:drawing><wp:inline><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="1" name="Signature"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="sig.${signatureExtension}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdCustomSig"/></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
-                                    }
-                                });
-                            }
-                        }
-                    };
-                    docxtemplater.modules.push(relsModifier);
-                    return options;
-                }
-            };
-        }
-
         async function processDocxTemplate(name) {
             const response = await fetch('Claim_Template.docx');
             if (!response.ok) throw new Error("Word Template file ('Claim_Template.docx') not found in repo root.");
             const arrayBuffer = await response.arrayBuffer();
-            const zip = new PizZip(arrayBuffer);
 
-            // Inject custom document relation maps safely for binary tracking inside zip archives
-            if (signatureBase64) {
-                let documentRels = zip.file("word/_rels/document.xml.rels").asText();
-                if (!documentRels.includes("rIdCustomSig")) {
-                    const closingTagIndex = documentRels.lastIndexOf("</Relationships>");
-                    const newRel = `<Relationship Id="rIdCustomSig" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/signature_asset.${signatureExtension}"/>`;
-                    documentRels = documentRels.substring(0, closingTagIndex) + newRel + "</Relationships>";
-                    zip.file("word/_rels/document.xml.rels", documentRels);
-                }
-                const binaryData = Uint8Array.from(window.atob(signatureBase64), c => c.charCodeAt(0));
-                zip.file(`word/media/signature_asset.${signatureExtension}`, binaryData);
+            // Link up the official global window instance provided by the corrected CDN path
+            const ImageModuleConstructor = window.ImageModule;
+            if (!ImageModuleConstructor) {
+                throw new Error("Docxtemplater Image Module failed to load globally from CDN.");
             }
 
+            const imageOptions = {
+                centered: false,
+                fileType: "docx",
+                getImage: function(tagValue) {
+                    return Uint8Array.from(atob(tagValue), c => c.charCodeAt(0));
+                },
+                getSize: function(img, tagValue, tagName) {
+                    // Inject a harmless invisible 1x1 pixel if the user didn't upload a signature
+                    if (tagValue === BLANK_PNG_BASE64) return [1, 1];
+                    
+                    const maxWidth = 150;
+                    const scaleFactor = signatureWidth > maxWidth ? maxWidth / signatureWidth : 1;
+                    return [signatureWidth * scaleFactor, signatureHeight * scaleFactor];
+                }
+            };
+
+            const imageModule = new ImageModuleConstructor(imageOptions);
+            const zip = new PizZip(arrayBuffer);
+            
             const doc = new window.docxtemplater(zip, {
+                modules: [imageModule],
                 paragraphLoop: true,
                 linebreaks: true,
             });
@@ -323,9 +305,10 @@
             const templateItemsArray = parsedCsvData.map((row, idx) => {
                 const finalRemarks = (row.Remarks && row.Remarks.trim()) ? row.Remarks.trim() : "N/A";
                 
-                // Tight inline run break completely preventing structural spacing overflows or extra empty pages
+                // When docxtemplater parses {@PAGE_BREAK}, replacing it with <w:p>... completely overwrites 
+                // the existing paragraph wrapping it, guaranteeing no extra newlines are left behind.
                 const isLastItem = idx === parsedCsvData.length - 1;
-                const breakXmlSnippet = isLastItem ? "" : '<w:r><w:br w:type="page"/></w:r>';
+                const breakXmlSnippet = isLastItem ? "" : '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 
                 return {
                     NAME: name,
@@ -333,8 +316,7 @@
                     DESCRIPTION: row.Description ? row.Description.trim() : '',
                     AMOUNT_HKD: row.HKDAmount ? parseFloat(row.HKDAmount.trim()).toFixed(2) : '0.00',
                     REMARKS: finalRemarks,
-                    // Fall back to simple empty text node cleanly if no signature file is uploaded
-                    SIGNATURE: signatureBase64 ? "%SIGNATURE" : "", 
+                    SIGNATURE: signatureBase64 || BLANK_PNG_BASE64, 
                     PAGE_BREAK: breakXmlSnippet
                 };
             });
