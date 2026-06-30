@@ -4,32 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Requisition Form Generator</title>
-
-    <script>
-        (function() {
-            function patchNamespaceURI(proto) {
-                if (!proto) return;
-                const desc = Object.getOwnPropertyDescriptor(proto, 'namespaceURI');
-                if (desc && desc.configurable && !desc.set) {
-                    Object.defineProperty(proto, 'namespaceURI', {
-                        get: desc.get,
-                        set: function(val) { /* Silently ignore to prevent TypeError */ },
-                        configurable: true
-                    });
-                }
-            }
-            if (typeof Element !== 'undefined') patchNamespaceURI(Element.prototype);
-            if (typeof Node !== 'undefined') patchNamespaceURI(Node.prototype);
-            if (typeof Attr !== 'undefined') patchNamespaceURI(Attr.prototype);
-        })();
-    </script>
-
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" crossorigin="anonymous"></script>
+    
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js" crossorigin="anonymous"></script>
+    
     <script src="https://unpkg.com/pizzip@3.1.7/dist/pizzip.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/docxtemplater@3.45.0/build/docxtemplater.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/docxtemplater-image-module-free@1.1.1/build/imagemodule.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/docxtemplater-image-module-free@1.1.1/build/index.js" crossorigin="anonymous"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans p-6">
 
@@ -38,7 +20,7 @@
         
         <div class="space-y-5">
             <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Applicant Name</label>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Applicant Name <span class="text-gray-400 font-normal">(Optional)</span></label>
                 <input type="text" id="userName" placeholder="e.g., John Doe" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
             </div>
 
@@ -64,8 +46,8 @@
             </div>
 
             <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Upload Signature Image <span class="text-gray-400 font-normal">(Optional)</span></label>
-                <input type="file" id="sigFile" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Upload Signature Image <span class="text-gray-400 font-normal">(Optional, supports PNG & JPG)</span></label>
+                <input type="file" id="sigFile" accept="image/png, image/jpeg, image/jpg" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
             </div>
 
             <button id="processBtn" class="w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-4 rounded-lg transition shadow-sm cursor-pointer">
@@ -176,7 +158,7 @@
             });
         });
 
-        // Parse signature image metadata parameters safely
+        // Parse signature image metadata safely (supporting both PNG and JPG formats)
         document.getElementById('sigFile').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) {
@@ -202,9 +184,8 @@
         });
 
         processBtn.addEventListener('click', async () => {
-            const name = document.getElementById('userName').value.trim();
-            
-            if (!name) return showStatus("Please enter your name.", "error");
+            const name = document.getElementById('userName').value.trim() || ""; // Optional Name
+
             if (parsedCsvData.length === 0) return showStatus("Please upload a valid CSV data file first.", "error");
 
             try {
@@ -287,7 +268,6 @@
             if (!response.ok) throw new Error("Word Template file ('Claim_Template.docx') not found in repo root.");
             const arrayBuffer = await response.arrayBuffer();
 
-            // Link up the global window instance provided by the fixed CDN path
             const ImageModuleConstructor = window.ImageModule;
             if (!ImageModuleConstructor) {
                 throw new Error("Docxtemplater Image Module failed to link globally from CDN.");
@@ -297,12 +277,10 @@
                 centered: false,
                 fileType: "docx",
                 getImage: function(tagValue) {
-                    // Transforms base64 strings into binary formats required by docxtemplater
                     return window.atob(tagValue);
                 },
                 getSize: function(img, tagValue, tagName) {
                     if (signatureWidth === 0 || signatureHeight === 0) return [0, 0];
-                    // Constrain width to 150px maximum while dynamically preserving aspect ratio
                     const maxWidth = 150;
                     const scaleFactor = signatureWidth > maxWidth ? maxWidth / signatureWidth : 1;
                     return [signatureWidth * scaleFactor, signatureHeight * scaleFactor];
@@ -321,9 +299,10 @@
             const templateItemsArray = parsedCsvData.map((row, idx) => {
                 const finalRemarks = (row.Remarks && row.Remarks.trim()) ? row.Remarks.trim() : "N/A";
                 
-                // Inserts clean OpenXML page break tags unless it's the final line item
+                // Tight run-level break layout token inside the structural paragraph sequence 
+                // preventing extra spacing overflow issues.
                 const isLastItem = idx === parsedCsvData.length - 1;
-                const breakXmlSnippet = isLastItem ? "" : '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+                const breakXmlSnippet = isLastItem ? "" : '<w:r><w:br w:type="page"/></w:r>';
 
                 return {
                     NAME: name,
@@ -349,7 +328,8 @@
 
         function setupDownloadActions(name) {
             const timestamp = getTimestampString();
-            const baseFileName = `${name.replace(/[^a-z0-9]/gi, '_')}_REQ_CASH_Form_${timestamp}`;
+            const safeName = name ? name.replace(/[^a-z0-9]/gi, '_') : "Applicant";
+            const baseFileName = `${safeName}_REQ_CASH_Form_${timestamp}`;
 
             document.getElementById('downloadXlsx').onclick = () => {
                 triggerBlobDownload(generatedWorkbookBlob, `${baseFileName}.xlsx`);
