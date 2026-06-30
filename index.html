@@ -9,9 +9,9 @@
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js" crossorigin="anonymous"></script>
     
-    <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.45.0/build/docxtemplater.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/docxtemplater-image-module-free@1.1.1/build/docxtemplater-image-module.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/pizzip@3.1.7/dist/pizzip.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/docxtemplater@3.45.0/build/docxtemplater.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/docxtemplater-image-module-free@1.1.1/build/index.js" crossorigin="anonymous"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans p-6">
 
@@ -269,7 +269,7 @@
             if (!response.ok) throw new Error("Word Template file ('Claim_Template.docx') not found in repo root.");
             const arrayBuffer = await response.arrayBuffer();
 
-            // Link up the global window instance provided by CDN
+            // Link up the global window instance provided by the fixed CDN path
             const ImageModuleConstructor = window.ImageModule;
             if (!ImageModuleConstructor) {
                 throw new Error("Docxtemplater Image Module failed to link globally from CDN.");
@@ -279,7 +279,7 @@
                 centered: false,
                 fileType: "docx",
                 getImage: function(tagValue) {
-                    // Transforms base64 strings into standard binary format required by docxtemplater
+                    // Transforms base64 strings into binary formats required by docxtemplater
                     return window.atob(tagValue);
                 },
                 getSize: function(img, tagValue, tagName) {
@@ -303,7 +303,7 @@
             const templateItemsArray = parsedCsvData.map((row, idx) => {
                 const finalRemarks = (row.Remarks && row.Remarks.trim()) ? row.Remarks.trim() : "N/A";
                 
-                // Inserts clean OpenXML page break tags unless it's the final index line item
+                // Inserts clean OpenXML page break tags unless it's the final line item
                 const isLastItem = idx === parsedCsvData.length - 1;
                 const breakXmlSnippet = isLastItem ? "" : '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 
@@ -313,13 +313,11 @@
                     DESCRIPTION: row.Description ? row.Description.trim() : '',
                     AMOUNT_HKD: row.HKDAmount ? parseFloat(row.HKDAmount.trim()).toFixed(2) : '0.00',
                     REMARKS: finalRemarks,
-                    // If no signature is provided, pass an empty string so docxtemplater evaluates cleanly
                     SIGNATURE: signatureBase64 || "", 
                     PAGE_BREAK: breakXmlSnippet
                 };
             });
 
-            // Make sure the structural tags wrap around your outside table boundaries
             doc.render({
                 items: templateItemsArray
             });
