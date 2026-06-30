@@ -11,7 +11,7 @@
     
     <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip.min.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.45.0/build/docxtemplater.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/docxtemplater-image-module@3.1.1/build/docxtemplater-image-module.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docxtemplater-image-module-free@1.1.1/build/docxtemplater-image-module.js" crossorigin="anonymous"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans p-6">
 
@@ -77,7 +77,6 @@
         let parsedCsvData = [];
         let rawCsvFileContent = null;
         let signatureBase64 = null;
-        let signatureArrayBuffer = null;
         let signatureExtension = null;
         let signatureWidth = 0;
         let signatureHeight = 0;
@@ -164,7 +163,6 @@
             const file = e.target.files[0];
             if (!file) {
                 signatureBase64 = null;
-                signatureArrayBuffer = null;
                 signatureExtension = null;
                 return;
             }
@@ -174,7 +172,6 @@
             const reader = new FileReader();
             reader.onload = function(event) {
                 signatureBase64 = event.target.result.split(',')[1];
-                signatureArrayBuffer = event.target.result;
                 
                 const img = new Image();
                 img.onload = function() {
@@ -272,25 +269,29 @@
             if (!response.ok) throw new Error("Word Template file ('Claim_Template.docx') not found in repo root.");
             const arrayBuffer = await response.arrayBuffer();
 
+            // Link up the global window instance provided by CDN
+            const ImageModuleConstructor = window.ImageModule;
+            if (!ImageModuleConstructor) {
+                throw new Error("Docxtemplater Image Module failed to link globally from CDN.");
+            }
+
             const imageOptions = {
                 centered: false,
+                fileType: "docx",
                 getImage: function(tagValue) {
-                    return Uint8Array.from(atob(tagValue), c => c.charCodeAt(0));
+                    // Transforms base64 strings into standard binary format required by docxtemplater
+                    return window.atob(tagValue);
                 },
                 getSize: function(img, tagValue, tagName) {
+                    if (signatureWidth === 0 || signatureHeight === 0) return [0, 0];
+                    // Constrain width to 150px maximum while dynamically preserving aspect ratio
                     const maxWidth = 150;
                     const scaleFactor = signatureWidth > maxWidth ? maxWidth / signatureWidth : 1;
                     return [signatureWidth * scaleFactor, signatureHeight * scaleFactor];
                 }
             };
 
-            // Catch the correct library export variable based on the CDN version
-            const DocxImageModule = window.DocxtemplaterImageModule || window.ImageModule;
-            if (!DocxImageModule) {
-                throw new Error("Docxtemplater Image Module failed to load from CDN.");
-            }
-            
-            const imageModule = new DocxImageModule(imageOptions);
+            const imageModule = new ImageModuleConstructor(imageOptions);
             const zip = new PizZip(arrayBuffer);
             
             const doc = new window.docxtemplater(zip, {
@@ -302,7 +303,7 @@
             const templateItemsArray = parsedCsvData.map((row, idx) => {
                 const finalRemarks = (row.Remarks && row.Remarks.trim()) ? row.Remarks.trim() : "N/A";
                 
-                // Add page break dynamically unless it is the last item
+                // Inserts clean OpenXML page break tags unless it's the final index line item
                 const isLastItem = idx === parsedCsvData.length - 1;
                 const breakXmlSnippet = isLastItem ? "" : '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 
@@ -312,11 +313,13 @@
                     DESCRIPTION: row.Description ? row.Description.trim() : '',
                     AMOUNT_HKD: row.HKDAmount ? parseFloat(row.HKDAmount.trim()).toFixed(2) : '0.00',
                     REMARKS: finalRemarks,
-                    SIGNATURE: signatureBase64 || "",
+                    // If no signature is provided, pass an empty string so docxtemplater evaluates cleanly
+                    SIGNATURE: signatureBase64 || "", 
                     PAGE_BREAK: breakXmlSnippet
                 };
             });
 
+            // Make sure the structural tags wrap around your outside table boundaries
             doc.render({
                 items: templateItemsArray
             });
