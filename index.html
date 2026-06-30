@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Requisition Form Generator</title>
+    <script src="tailwind.js"></script>
+    <script src="papaparse.min.js"></script>
+    <script src="exceljs.min.js"></script>
+    <script src="html2pdf.bundle.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans p-6">
+
+    <div class="max-w-4xl mx-auto bg-white p-8 rounded-xl shadow-md border border-gray-100">
+        <h1 class="text-2xl font-bold text-gray-900 mb-6 border-b pb-4">Requisition Form Processor</h1>
+        
+        <div class="space-y-5">
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Applicant Name</label>
+                <input type="text" id="userName" placeholder="e.g., John Doe" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Upload CSV Data File</label>
+                <input type="file" id="csvFile" accept=".csv" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                <p class="text-xs text-gray-400 mt-1">Must contain headers: Date, Description, HKDAmount, Remarks</p>
+            </div>
+
+            <div id="previewSection" class="hidden border rounded-lg p-4 bg-gray-50 max-h-60 overflow-y-auto">
+                <h3 class="text-sm font-bold text-gray-700 mb-2">CSV Data Preview</h3>
+                <table class="w-full text-xs text-left border-collapse bg-white">
+                    <thead>
+                        <tr class="bg-gray-100 border-b">
+                            <th class="p-2 border">Date</th>
+                            <th class="p-2 border">Description</th>
+                            <th class="p-2 border">HKDAmount</th>
+                            <th class="p-2 border">Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody id="previewTableBody"></tbody>
+                </table>
+            </div>
+
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Upload Signature Image <span class="text-gray-400 font-normal">(Optional)</span></label>
+                <input type="file" id="sigFile" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+            </div>
+
+            <button id="processBtn" class="w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-4 rounded-lg transition shadow-sm cursor-pointer">
+                Verify & Process Data
+            </button>
+        </div>
+
+        <div id="statusMessage" class="hidden mt-6 p-4 rounded-lg text-sm"></div>
+
+        <div id="downloadSection" class="hidden mt-8 border-t pt-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-3">Files Available for Download</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <button id="downloadXlsx" class="bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-4 rounded-lg font-medium transition shadow-sm cursor-pointer text-center">
+                    Download Excel (.xlsx)
+                </button>
+                <button id="downloadPdf" class="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg font-medium transition shadow-sm cursor-pointer text-center">
+                    Download PDF (.pdf)
+                </button>
+                <button id="downloadCsv" class="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-lg font-medium transition shadow-sm cursor-pointer text-center">
+                    Export original CSV
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="hidden">
+        <div id="pdfPrintTemplate" class="p-8 style-print" style="width: 800px; font-family: Arial, sans-serif;">
+            <h2 style="text-align: center; margin-bottom: 20px;">REQUISITION CASH FORM</h2>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+                <thead>
+                    <tr style="background-color: #f3f4f6;">
+                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 8%;">Index</th>
+                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 15%;">Date</th>
+                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 45%;">Description</th>
+                        <th style="border: 1px solid #000; padding: 8px; text-align: right; width: 14%;">Amount</th>
+                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 18%;">Remarks</th>
+                    </tr>
+                </thead>
+                <tbody id="pdfTableBody"></tbody>
+            </table>
+            <div style="margin-top: 40px; display: flex; justify-content: flex-end;">
+                <div style="text-align: center; width: 250px;">
+                    <div style="height: 60px; display: flex; align-items: center; justify-content: center; margin-bottom: 5px;">
+                        <img id="pdfSigPreview" src="" alt="Signature" style="max-height: 100%; max-width: 100%; display: none;">
+                    </div>
+                    <div style="border-top: 1px solid #000; padding-top: 4px; font-weight: bold;" id="pdfNamePreview"></div>
+                    <div style="font-size: 12px; color: #555;">Applicant Signature & Name</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let parsedCsvData = [];
+        let rawCsvFileContent = null;
+        let signatureBase64 = null;
+        let signatureExtension = null;
+        let generatedWorkbookBlob = null;
+
+        // UI Target references
+        const processBtn = document.getElementById('processBtn');
+        const statusMessage = document.getElementById('statusMessage');
+        const downloadSection = document.getElementById('downloadSection');
+        const previewSection = document.getElementById('previewSection');
+        const previewTableBody = document.getElementById('previewTableBody');
+
+        // Parse and preview CSV dynamically when chosen
+        document.getElementById('csvFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            rawCsvFileContent = file;
+
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    const headers = results.meta.fields || [];
+                    const requiredHeaders = ['Date', 'Description', 'HKDAmount', 'Remarks'];
+                    const hasHeaders = requiredHeaders.every(h => headers.includes(h));
+
+                    if (!hasHeaders) {
+                        showStatus("CSV Error: Column headers must exactly match: Date, Description, HKDAmount, Remarks", "error");
+                        previewSection.classList.add('hidden');
+                        parsedCsvData = [];
+                        return;
+                    }
+
+                    parsedCsvData = results.data;
+                    previewTableBody.innerHTML = '';
+
+                    // Populate live data preview table rows
+                    parsedCsvData.forEach(row => {
+                        const tr = document.createElement('tr');
+                        tr.className = "border-b hover:bg-gray-50";
+                        tr.innerHTML = `
+                            <td class="p-2 border">${row.Date || ''}</td>
+                            <td class="p-2 border">${row.Description || ''}</td>
+                            <td class="p-2 border">${row.HKDAmount || ''}</td>
+                            <td class="p-2 border text-gray-500">${row.Remarks || ''}</td>
+                        `;
+                        previewTableBody.appendChild(tr);
+                    });
+                    previewSection.classList.remove('hidden');
+                    statusMessage.classList.add('hidden');
+                }
+            });
+        });
+
+        // Parse input image signature files
+        document.getElementById('sigFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) {
+                signatureBase64 = null;
+                signatureExtension = null;
+                document.getElementById('pdfSigPreview').style.display = 'none';
+                return;
+            }
+            signatureExtension = file.name.split('.').pop().toLowerCase();
+            if (signatureExtension === 'jpg') signatureExtension = 'jpeg';
+            
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                signatureBase64 = event.target.result.split(',')[1];
+                document.getElementById('pdfSigPreview').src = event.target.result;
+                document.getElementById('pdfSigPreview').style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        });
+
+        processBtn.addEventListener('click', async () => {
+            const name = document.getElementById('userName').value.trim();
+            
+            // 1. Validation Checks (Signature is no longer strictly required)
+            if (!name) return showStatus("Please enter your name.", "error");
+            if (parsedCsvData.length === 0) return showStatus("Please upload a valid CSV data file first.", "error");
+
+            document.getElementById('pdfNamePreview').innerText = name;
+            
+            try {
+                showStatus("Fetching form template and building workbook...", "info");
+                await processWorkbookAndPdf(name);
+                showStatus("Success! Your documents are prepared and ready for download.", "success");
+                downloadSection.classList.remove('hidden');
+            } catch (err) {
+                console.error(err);
+                showStatus(`Error styling document: ${err.message}. Ensure 'REQ_CASH_Form_Template.xlsx' exists in the root folder.`, "error");
+            }
+        });
+
+        async function processWorkbookAndPdf(name) {
+            const response = await fetch('REQ_CASH_Form_Template.xlsx');
+            if (!response.ok) throw new Error("Template file could not be found via server root.");
+            const arrayBuffer = await response.arrayBuffer();
+
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.load(arrayBuffer);
+            const worksheet = workbook.getWorksheet('Form');
+            if (!worksheet) throw new Error("Worksheet named 'Form' was not found in template.");
+
+            const totalRows = parsedCsvData.length;
+            
+            if (totalRows > 1) {
+                worksheet.duplicateRow(4, totalRows - 1, true);
+            }
+
+            const pdfTableBody = document.getElementById('pdfTableBody');
+            pdfTableBody.innerHTML = '';
+
+            parsedCsvData.forEach((row, idx) => {
+                const rowNum = 4 + idx;
+                const indexValue = idx + 1;
+                
+                worksheet.getCell(`A${rowNum}`).value = indexValue;
+                worksheet.getCell(`B${rowNum}`).value = row.Date;
+                worksheet.getCell(`C${rowNum}`).value = row.Description;
+                worksheet.getCell(`D${rowNum}`).value = Number(row.HKDAmount) || row.HKDAmount;
+                worksheet.getCell(`E${rowNum}`).value = row.Remarks || "";
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="border: 1px solid #000; padding: 8px;">${indexValue}</td>
+                    <td style="border: 1px solid #000; padding: 8px;">${row.Date}</td>
+                    <td style="border: 1px solid #000; padding: 8px;">${row.Description}</td>
+                    <td style="border: 1px solid #000; padding: 8px; text-align: right;">$${Number(row.HKDAmount).toFixed(2)}</td>
+                    <td style="border: 1px solid #000; padding: 8px;">${row.Remarks || ""}</td>
+                `;
+                pdfTableBody.appendChild(tr);
+            });
+
+            const shiftOffset = totalRows - 1;
+            const targetSigRow = 12 + shiftOffset;
+            const targetNameRow = 13 + shiftOffset;
+
+            worksheet.getCell(`C${targetNameRow}`).value = name;
+
+            // 2. Conditional Image Rendering directly tied inside the cell bounds
+            if (signatureBase64) {
+                const imageId = workbook.addImage({
+                    base64: signatureBase64,
+                    extension: signatureExtension,
+                });
+                
+                // Using cell range notation 'C12:C12' anchors the image directly INSIDE the cell bounds 
+                // instead of floating independently over coordinates.
+                worksheet.addImage(imageId, `C${targetSigRow}:C${targetSigRow}`);
+                document.getElementById('pdfSigPreview').style.display = 'block';
+            } else {
+                document.getElementById('pdfSigPreview').style.display = 'none';
+            }
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            generatedWorkbookBlob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+
+            setupDownloadActions(name);
+        }
+
+        function setupDownloadActions(name) {
+            const timestamp = getTimestampString();
+            const baseFileName = `${name.replace(/[^a-z0-9]/gi, '_')}_REQ_CASH_Form_${timestamp}`;
+
+            document.getElementById('downloadXlsx').onclick = () => {
+                triggerBlobDownload(generatedWorkbookBlob, `${baseFileName}.xlsx`);
+            };
+
+            document.getElementById('downloadPdf').onclick = () => {
+                const element = document.getElementById('pdfPrintTemplate');
+                const opt = {
+                    margin:       0.5,
+                    filename:     `${baseFileName}.pdf`,
+                    image:        { type: 'jpeg', quality: 0.98 },
+                    html2canvas:  { scale: 2 },
+                    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+                };
+                html2pdf().set(opt).from(element).save();
+            };
+
+            document.getElementById('downloadCsv').onclick = () => {
+                if (rawCsvFileContent) {
+                    triggerBlobDownload(rawCsvFileContent, `${baseFileName}.csv`);
+                }
+            };
+        }
+
+        function getTimestampString() {
+            const d = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+        }
+
+        function triggerBlobDownload(blob, filename) {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+
+        function showStatus(msg, type) {
+            statusMessage.classList.remove('hidden', 'bg-blue-50', 'text-blue-700', 'bg-red-50', 'text-red-700', 'bg-emerald-50', 'text-emerald-700');
+            if (type === 'info') {
+                statusMessage.classList.add('bg-blue-50', 'text-blue-700');
+            } else if (type === 'error') {
+                statusMessage.classList.add('bg-red-50', 'text-red-700');
+            } else if (type === 'success') {
+                statusMessage.classList.add('bg-emerald-50', 'text-emerald-700');
+            }
+            statusMessage.innerText = msg;
+        }
+    </script>
+</body>
+</html>
