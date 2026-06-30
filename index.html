@@ -39,18 +39,23 @@
         <h1 class="text-2xl font-bold text-gray-900 mb-6 border-b pb-4">Requisition Form Processor</h1>
         
         <div class="space-y-5">
-            <div>
-                <label class="block text-sm font-semibold text-gray-700 mb-1">Applicant Name <span class="text-gray-400 font-normal">(Optional)</span></label>
-                <input type="text" id="userName" placeholder="e.g., John Doe" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Applicant Name <span class="text-gray-400 font-normal">(Optional)</span></label>
+                    <input type="text" id="userName" placeholder="e.g., John Doe" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Checker Name <span class="text-gray-400 font-normal">(Optional)</span></label>
+                    <input type="text" id="checkerName" placeholder="e.g., Jane Smith" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Approver Name <span class="text-gray-400 font-normal">(Optional)</span></label>
+                    <input type="text" id="approverName" placeholder="e.g., Alex Wong" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
             </div>
 
             <div>
-                <div class="flex justify-between items-end mb-1">
-                    <label class="block text-sm font-semibold text-gray-700">Upload CSV Data File</label>
-                    <button id="downloadCsvTemplateBtn" class="text-xs text-blue-600 hover:text-blue-800 font-medium cursor-pointer underline decoration-blue-300 hover:decoration-blue-800 transition">
-                        Download CSV Template
-                    </button>
-                </div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">Upload CSV Data File</label>
                 <input type="file" id="csvFile" accept=".csv" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
                 <p class="text-xs text-gray-400 mt-1">Accepts formats like: 11-May-26 or 11 May 2026</p>
             </div>
@@ -117,13 +122,6 @@
 
         // Transparent 1x1 PNG Base64 to safely fallback missing signatures in docxtemplater
         const BLANK_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-
-        // Generate and download a dummy CSV template directly from the browser
-        document.getElementById('downloadCsvTemplateBtn').addEventListener('click', function() {
-            const templateContent = "Date,Description,HKDAmount,Remarks\n01-Jun-26,Office Supplies,150.50,Pens and notebooks\n15-Jun-26,Team Lunch,450.00,Project milestone celebration\n20-Jun-26,Taxi to Client,85.00,";
-            const blob = new Blob([templateContent], { type: 'text/csv;charset=utf-8;' });
-            triggerBlobDownload(blob, "REQ_CASH_Form_Data_Template.csv");
-        });
 
         // Parse and preview CSV dynamically when chosen
         document.getElementById('csvFile').addEventListener('change', function(e) {
@@ -220,14 +218,16 @@
 
         processBtn.addEventListener('click', async () => {
             const name = document.getElementById('userName').value.trim() || ""; 
+            const checkerName = document.getElementById('checkerName').value.trim() || "";
+            const approverName = document.getElementById('approverName').value.trim() || "";
 
             if (parsedCsvData.length === 0) return showStatus("Please upload a valid CSV data file first.", "error");
 
             try {
                 showStatus("Compiling files and populating template models...", "info");
                 
-                await processWorkbook(name);
-                await processDocxTemplate(name);
+                await processWorkbook(name, checkerName, approverName);
+                await processDocxTemplate(name, checkerName, approverName);
                 
                 showStatus("Success! Your documents are prepared and ready for download.", "success");
                 downloadSection.classList.remove('hidden');
@@ -237,7 +237,7 @@
             }
         });
 
-        async function processWorkbook(name) {
+        async function processWorkbook(name, checkerName, approverName) {
             const response = await fetch('REQ_CASH_Form_Template.xlsx');
             if (!response.ok) throw new Error("Excel Template file could not be found via server root.");
             const arrayBuffer = await response.arrayBuffer();
@@ -261,11 +261,16 @@
                 worksheet.getCell(`E${rowNum}`).value = row.Remarks ? row.Remarks.trim() : '';
             });
 
+            // Calculate shift parameters based on rows added dynamically
             const shiftOffset = totalRows - 1;
             const targetSigRow = 12 + shiftOffset;
             const targetNameRow = 13 + shiftOffset;
+            const targetCheckerRow = 13 + shiftOffset;  // Originally F13, shifts down with name row
+            const targetApproverRow = 18 + shiftOffset; // Originally F18
 
             worksheet.getCell(`C${targetNameRow}`).value = name;
+            worksheet.getCell(`F${targetCheckerRow}`).value = checkerName;
+            worksheet.getCell(`F${targetApproverRow}`).value = approverName;
 
             if (signatureBase64 && signatureWidth > 0 && signatureHeight > 0) {
                 const imageId = workbook.addImage({
@@ -298,12 +303,11 @@
             setupDownloadActions(name);
         }
 
-        async function processDocxTemplate(name) {
+        async function processDocxTemplate(name, checkerName, approverName) {
             const response = await fetch('Claim_Template.docx');
             if (!response.ok) throw new Error("Word Template file ('Claim_Template.docx') not found in repo root.");
             const arrayBuffer = await response.arrayBuffer();
 
-            // Link up the official global window instance provided by the corrected CDN path
             const ImageModuleConstructor = window.ImageModule;
             if (!ImageModuleConstructor) {
                 throw new Error("Docxtemplater Image Module failed to load globally from CDN.");
@@ -316,7 +320,6 @@
                     return Uint8Array.from(atob(tagValue), c => c.charCodeAt(0));
                 },
                 getSize: function(img, tagValue, tagName) {
-                    // Inject a harmless invisible 1x1 pixel if the user didn't upload a signature
                     if (tagValue === BLANK_PNG_BASE64) return [1, 1];
                     
                     const maxWidth = 150;
@@ -336,14 +339,13 @@
 
             const templateItemsArray = parsedCsvData.map((row, idx) => {
                 const finalRemarks = (row.Remarks && row.Remarks.trim()) ? row.Remarks.trim() : "N/A";
-                
-                // When docxtemplater parses {@PAGE_BREAK}, replacing it with <w:p>... completely overwrites 
-                // the existing paragraph wrapping it, guaranteeing no extra newlines are left behind.
                 const isLastItem = idx === parsedCsvData.length - 1;
                 const breakXmlSnippet = isLastItem ? "" : '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 
                 return {
                     NAME: name,
+                    CHECKER: checkerName,
+                    APPROVER: approverName,
                     DATE: row.Date ? row.Date.trim() : '',
                     DESCRIPTION: row.Description ? row.Description.trim() : '',
                     AMOUNT_HKD: row.HKDAmount ? parseFloat(row.HKDAmount.trim()).toFixed(2) : '0.00',
