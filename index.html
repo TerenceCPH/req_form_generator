@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Requisition Form Generator</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" crossorigin="anonymous"></script>
     
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans p-6">
 
@@ -24,7 +24,7 @@
             <div>
                 <label class="block text-sm font-semibold text-gray-700 mb-1">Upload CSV Data File</label>
                 <input type="file" id="csvFile" accept=".csv" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-                <p class="text-xs text-gray-400 mt-1">Must contain headers: Date, Description, HKDAmount, Remarks</p>
+                <p class="text-xs text-gray-400 mt-1">Accepts formats like: 11-May-26 or 11 May 2026 (with or without quotes)</p>
             </div>
 
             <div id="previewSection" class="hidden border rounded-lg p-4 bg-gray-50 max-h-60 overflow-y-auto">
@@ -71,27 +71,28 @@
     </div>
 
     <div class="hidden">
-        <div id="pdfPrintTemplate" class="p-8 style-print" style="width: 800px; font-family: Arial, sans-serif;">
-            <h2 style="text-align: center; margin-bottom: 20px;">REQUISITION CASH FORM</h2>
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+        <div id="pdfPrintTemplate" class="p-4" style="width: 715px; font-family: Arial, sans-serif; box-sizing: border-box;">
+            <h2 style="text-align: center; margin-bottom: 20px; font-size: 20px; font-weight: bold;">REQUISITION CASH FORM</h2>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px; table-layout: fixed;">
                 <thead>
                     <tr style="background-color: #f3f4f6;">
-                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 8%;">Index</th>
-                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 15%;">Date</th>
-                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 45%;">Description</th>
-                        <th style="border: 1px solid #000; padding: 8px; text-align: right; width: 14%;">Amount</th>
-                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 18%;">Remarks</th>
+                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 8%; font-size: 12px;">Index</th>
+                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 15%; font-size: 12px;">Date</th>
+                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 45%; font-size: 12px;">Description</th>
+                        <th style="border: 1px solid #000; padding: 8px; text-align: right; width: 14%; font-size: 12px;">Amount</th>
+                        <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 18%; font-size: 12px;">Remarks</th>
                     </tr>
                 </thead>
                 <tbody id="pdfTableBody"></tbody>
             </table>
+            
             <div style="margin-top: 40px; display: flex; justify-content: flex-end;">
-                <div style="text-align: center; width: 250px;">
-                    <div style="height: 60px; display: flex; align-items: center; justify-content: center; margin-bottom: 5px;">
-                        <img id="pdfSigPreview" src="" alt="Signature" style="max-height: 100%; max-width: 100%; display: none;">
+                <div style="text-align: center; width: 220px;">
+                    <div style="height: 55px; display: flex; align-items: center; justify-content: center; margin-bottom: 5px;">
+                        <img id="pdfSigPreview" src="" alt="Signature" style="max-height: 100%; max-width: 100%; display: none; object-fit: contain;">
                     </div>
-                    <div style="border-top: 1px solid #000; padding-top: 4px; font-weight: bold;" id="pdfNamePreview"></div>
-                    <div style="font-size: 12px; color: #555;">Applicant Signature & Name</div>
+                    <div style="border-top: 1px solid #000; padding-top: 4px; font-weight: bold; font-size: 13px;" id="pdfNamePreview"></div>
+                    <div style="font-size: 11px; color: #555;">Applicant Signature & Name</div>
                 </div>
             </div>
         </div>
@@ -102,6 +103,8 @@
         let rawCsvFileContent = null;
         let signatureBase64 = null;
         let signatureExtension = null;
+        let signatureWidth = 0;
+        let signatureHeight = 0;
         let generatedWorkbookBlob = null;
 
         // UI Target references
@@ -120,6 +123,7 @@
             Papa.parse(file, {
                 header: true,
                 skipEmptyLines: true,
+                transformHeader: function(h) { return h.trim(); },
                 complete: function(results) {
                     const headers = results.meta.fields || [];
                     const requiredHeaders = ['Date', 'Description', 'HKDAmount', 'Remarks'];
@@ -132,28 +136,54 @@
                         return;
                     }
 
+                    // Flexible Date Matching: Supports "11-May-26" and "11 May 2026" formats cleanly
+                    const datePattern = /^\d{1,2}[-\s][A-Za-z]{3}[-\s]\d{2,4}$/;
+                    let formatErrors = [];
+
                     parsedCsvData = results.data;
                     previewTableBody.innerHTML = '';
 
-                    // Populate live data preview table rows
-                    parsedCsvData.forEach(row => {
+                    parsedCsvData.forEach((row, i) => {
+                        const displayDate = row.Date ? row.Date.trim() : '';
+                        const displayDesc = row.Description ? row.Description.trim() : '';
+                        const displayAmount = row.HKDAmount ? row.HKDAmount.trim() : '';
+                        const displayRemarks = row.Remarks ? row.Remarks.trim() : '';
+
+                        if (!datePattern.test(displayDate)) {
+                            formatErrors.push(`Row ${i+1}: Date "${displayDate}" must match DD-MMM-YY or DD MMM YYYY format.`);
+                        }
+                        if (!displayDesc) {
+                            formatErrors.push(`Row ${i+1}: Description cannot be blank.`);
+                        }
+                        if (isNaN(parseFloat(displayAmount)) || !isFinite(displayAmount)) {
+                            formatErrors.push(`Row ${i+1}: HKDAmount "${displayAmount}" must be a valid numeric calculation.`);
+                        }
+
                         const tr = document.createElement('tr');
                         tr.className = "border-b hover:bg-gray-50";
                         tr.innerHTML = `
-                            <td class="p-2 border">${row.Date || ''}</td>
-                            <td class="p-2 border">${row.Description || ''}</td>
-                            <td class="p-2 border">${row.HKDAmount || ''}</td>
-                            <td class="p-2 border text-gray-500">${row.Remarks || ''}</td>
+                            <td class="p-2 border">${displayDate}</td>
+                            <td class="p-2 border truncate max-w-xs">${displayDesc}</td>
+                            <td class="p-2 border">${displayAmount}</td>
+                            <td class="p-2 border text-gray-500">${displayRemarks}</td>
                         `;
                         previewTableBody.appendChild(tr);
                     });
+
+                    if (formatErrors.length > 0) {
+                        showStatus("Format Verification Error:\n" + formatErrors.slice(0, 3).join("\n"), "error");
+                        previewSection.classList.add('hidden');
+                        parsedCsvData = [];
+                        return;
+                    }
+
                     previewSection.classList.remove('hidden');
                     statusMessage.classList.add('hidden');
                 }
             });
         });
 
-        // Parse input image signature files
+        // Parse signature and read image metadata properties safely
         document.getElementById('sigFile').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) {
@@ -168,8 +198,16 @@
             const reader = new FileReader();
             reader.onload = function(event) {
                 signatureBase64 = event.target.result.split(',')[1];
-                document.getElementById('pdfSigPreview').src = event.target.result;
-                document.getElementById('pdfSigPreview').style.display = 'block';
+                
+                const img = new Image();
+                img.onload = function() {
+                    signatureWidth = this.width;
+                    signatureHeight = this.height;
+                    
+                    document.getElementById('pdfSigPreview').src = event.target.result;
+                    document.getElementById('pdfSigPreview').style.display = 'block';
+                };
+                img.src = event.target.result;
             };
             reader.readAsDataURL(file);
         });
@@ -177,7 +215,6 @@
         processBtn.addEventListener('click', async () => {
             const name = document.getElementById('userName').value.trim();
             
-            // 1. Validation Checks (Signature is no longer strictly required)
             if (!name) return showStatus("Please enter your name.", "error");
             if (parsedCsvData.length === 0) return showStatus("Please upload a valid CSV data file first.", "error");
 
@@ -217,19 +254,25 @@
                 const rowNum = 4 + idx;
                 const indexValue = idx + 1;
                 
-                worksheet.getCell(`A${rowNum}`).value = indexValue;
-                worksheet.getCell(`B${rowNum}`).value = row.Date;
-                worksheet.getCell(`C${rowNum}`).value = row.Description;
-                worksheet.getCell(`D${rowNum}`).value = Number(row.HKDAmount) || row.HKDAmount;
-                worksheet.getCell(`E${rowNum}`).value = row.Remarks || "";
+                const finalDate = row.Date ? row.Date.trim() : '';
+                const finalDesc = row.Description ? row.Description.trim() : '';
+                const finalAmount = row.HKDAmount ? Number(row.HKDAmount.trim()) : 0;
+                const finalRemarks = row.Remarks ? row.Remarks.trim() : '';
 
+                worksheet.getCell(`A${rowNum}`).value = indexValue;
+                worksheet.getCell(`B${rowNum}`).value = finalDate;
+                worksheet.getCell(`C${rowNum}`).value = finalDesc;
+                worksheet.getCell(`D${rowNum}`).value = finalAmount;
+                worksheet.getCell(`E${rowNum}`).value = finalRemarks;
+
+                // PDF rows match cell layout structure cleanly with hard breaks handling long descriptions
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td style="border: 1px solid #000; padding: 8px;">${indexValue}</td>
-                    <td style="border: 1px solid #000; padding: 8px;">${row.Date}</td>
-                    <td style="border: 1px solid #000; padding: 8px;">${row.Description}</td>
-                    <td style="border: 1px solid #000; padding: 8px; text-align: right;">$${Number(row.HKDAmount).toFixed(2)}</td>
-                    <td style="border: 1px solid #000; padding: 8px;">${row.Remarks || ""}</td>
+                    <td style="border: 1px solid #000; padding: 6px; font-size: 11px; word-break: break-word;">${indexValue}</td>
+                    <td style="border: 1px solid #000; padding: 6px; font-size: 11px; word-break: break-word;">${finalDate}</td>
+                    <td style="border: 1px solid #000; padding: 6px; font-size: 11px; word-break: break-word;">${finalDesc}</td>
+                    <td style="border: 1px solid #000; padding: 6px; font-size: 11px; text-align: right;">$${finalAmount.toFixed(2)}</td>
+                    <td style="border: 1px solid #000; padding: 6px; font-size: 11px; word-break: break-word;">${finalRemarks}</td>
                 `;
                 pdfTableBody.appendChild(tr);
             });
@@ -240,16 +283,30 @@
 
             worksheet.getCell(`C${targetNameRow}`).value = name;
 
-            // 2. Conditional Image Rendering directly tied inside the cell bounds
-            if (signatureBase64) {
+            if (signatureBase64 && signatureWidth > 0 && signatureHeight > 0) {
                 const imageId = workbook.addImage({
                     base64: signatureBase64,
                     extension: signatureExtension,
                 });
                 
-                // Using cell range notation 'C12:C12' anchors the image directly INSIDE the cell bounds 
-                // instead of floating independently over coordinates.
-                worksheet.addImage(imageId, `C${targetSigRow}:C${targetSigRow}`);
+                const maxCellWidthPx = 130;  
+                const maxCellHeightPx = 55; 
+                let finalWidth = maxCellWidthPx;
+                let finalHeight = maxCellHeightPx;
+
+                const srcRatio = signatureWidth / signatureHeight;
+                const targetRatio = maxCellWidthPx / maxCellHeightPx;
+
+                if (srcRatio > targetRatio) {
+                    finalHeight = maxCellWidthPx / srcRatio;
+                } else {
+                    finalWidth = maxCellHeightPx * srcRatio;
+                }
+
+                worksheet.addImage(imageId, {
+                    tl: { col: 2, row: targetSigRow - 1, editAs: 'oneCell' },
+                    ext: { width: finalWidth, height: finalHeight }
+                });
                 document.getElementById('pdfSigPreview').style.display = 'block';
             } else {
                 document.getElementById('pdfSigPreview').style.display = 'none';
@@ -272,11 +329,11 @@
             document.getElementById('downloadPdf').onclick = () => {
                 const element = document.getElementById('pdfPrintTemplate');
                 const opt = {
-                    margin:       0.5,
+                    margin:       [12, 12, 12, 12], // Standard millimeter print margins 
                     filename:     `${baseFileName}.pdf`,
                     image:        { type: 'jpeg', quality: 0.98 },
-                    html2canvas:  { scale: 2 },
-                    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+                    html2canvas:  { scale: 2, useCORS: true, logging: false },
+                    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' } // Forces hard A4 formatting parameters
                 };
                 html2pdf().set(opt).from(element).save();
             };
