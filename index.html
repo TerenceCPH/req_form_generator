@@ -11,7 +11,6 @@
     
     <script src="https://unpkg.com/pizzip@3.1.7/dist/pizzip.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/docxtemplater@3.45.0/build/docxtemplater.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/docxtemplater-image-module-free@1.1.1/build/index.js" crossorigin="anonymous"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans p-6">
 
@@ -27,7 +26,7 @@
             <div>
                 <label class="block text-sm font-semibold text-gray-700 mb-1">Upload CSV Data File</label>
                 <input type="file" id="csvFile" accept=".csv" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-                <p class="text-xs text-gray-400 mt-1">Accepts formats like: 11-May-26 or 11 May 2026 (with or without quotes)</p>
+                <p class="text-xs text-gray-400 mt-1">Accepts formats like: 11-May-26 or 11 May 2026</p>
             </div>
 
             <div id="previewSection" class="hidden border rounded-lg p-4 bg-gray-50 max-h-60 overflow-y-auto">
@@ -158,7 +157,7 @@
             });
         });
 
-        // Parse signature image metadata safely (supporting both PNG and JPG formats)
+        // Track and process signature data safely across formats (PNG/JPG)
         document.getElementById('sigFile').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) {
@@ -184,7 +183,7 @@
         });
 
         processBtn.addEventListener('click', async () => {
-            const name = document.getElementById('userName').value.trim() || ""; // Optional Name
+            const name = document.getElementById('userName').value.trim() || ""; 
 
             if (parsedCsvData.length === 0) return showStatus("Please upload a valid CSV data file first.", "error");
 
@@ -263,35 +262,60 @@
             setupDownloadActions(name);
         }
 
+        // Native injection module directly attached to resolve external library drops
+        function getNativeInlineImageModule() {
+            return {
+                set: function(obj) { this.options = obj; },
+                optionsTransformer: function(options, docxtemplater) {
+                    const relsModifier = {
+                        class: class {
+                            parse(zip) { this.zip = zip; }
+                            postrender(parts) {
+                                // Scans document text nodes dynamically for signature tags
+                                parts.forEach(part => {
+                                    if (part.type === 'placeholder' && part.value === '%SIGNATURE' && signatureBase64) {
+                                        const maxWidth = 150;
+                                        const scaleFactor = signatureWidth > maxWidth ? maxWidth / signatureWidth : 1;
+                                        const w = Math.round(signatureWidth * scaleFactor);
+                                        const h = Math.round(signatureHeight * scaleFactor);
+                                        
+                                        // Standard OpenXML container schema for embedding inline binary elements safely
+                                        const cx = w * 9525; 
+                                        const cy = h * 9525;
+                                        
+                                        part.type = 'content';
+                                        part.value = `<w:p><w:r><w:drawing><wp:inline><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="1" name="Signature"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="sig.${signatureExtension}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdCustomSig"/></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+                                    }
+                                });
+                            }
+                        }
+                    };
+                    docxtemplater.modules.push(relsModifier);
+                    return options;
+                }
+            };
+        }
+
         async function processDocxTemplate(name) {
             const response = await fetch('Claim_Template.docx');
             if (!response.ok) throw new Error("Word Template file ('Claim_Template.docx') not found in repo root.");
             const arrayBuffer = await response.arrayBuffer();
+            const zip = new PizZip(arrayBuffer);
 
-            const ImageModuleConstructor = window.ImageModule;
-            if (!ImageModuleConstructor) {
-                throw new Error("Docxtemplater Image Module failed to link globally from CDN.");
+            // Inject custom document relation maps safely for binary tracking inside zip archives
+            if (signatureBase64) {
+                let documentRels = zip.file("word/_rels/document.xml.rels").asText();
+                if (!documentRels.includes("rIdCustomSig")) {
+                    const closingTagIndex = documentRels.lastIndexOf("</Relationships>");
+                    const newRel = `<Relationship Id="rIdCustomSig" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/signature_asset.${signatureExtension}"/>`;
+                    documentRels = documentRels.substring(0, closingTagIndex) + newRel + "</Relationships>";
+                    zip.file("word/_rels/document.xml.rels", documentRels);
+                }
+                const binaryData = Uint8Array.from(window.atob(signatureBase64), c => c.charCodeAt(0));
+                zip.file(`word/media/signature_asset.${signatureExtension}`, binaryData);
             }
 
-            const imageOptions = {
-                centered: false,
-                fileType: "docx",
-                getImage: function(tagValue) {
-                    return window.atob(tagValue);
-                },
-                getSize: function(img, tagValue, tagName) {
-                    if (signatureWidth === 0 || signatureHeight === 0) return [0, 0];
-                    const maxWidth = 150;
-                    const scaleFactor = signatureWidth > maxWidth ? maxWidth / signatureWidth : 1;
-                    return [signatureWidth * scaleFactor, signatureHeight * scaleFactor];
-                }
-            };
-
-            const imageModule = new ImageModuleConstructor(imageOptions);
-            const zip = new PizZip(arrayBuffer);
-            
             const doc = new window.docxtemplater(zip, {
-                modules: [imageModule],
                 paragraphLoop: true,
                 linebreaks: true,
             });
@@ -299,8 +323,7 @@
             const templateItemsArray = parsedCsvData.map((row, idx) => {
                 const finalRemarks = (row.Remarks && row.Remarks.trim()) ? row.Remarks.trim() : "N/A";
                 
-                // Tight run-level break layout token inside the structural paragraph sequence 
-                // preventing extra spacing overflow issues.
+                // Tight inline run break completely preventing structural spacing overflows or extra empty pages
                 const isLastItem = idx === parsedCsvData.length - 1;
                 const breakXmlSnippet = isLastItem ? "" : '<w:r><w:br w:type="page"/></w:r>';
 
@@ -310,7 +333,8 @@
                     DESCRIPTION: row.Description ? row.Description.trim() : '',
                     AMOUNT_HKD: row.HKDAmount ? parseFloat(row.HKDAmount.trim()).toFixed(2) : '0.00',
                     REMARKS: finalRemarks,
-                    SIGNATURE: signatureBase64 || "", 
+                    // Fall back to simple empty text node cleanly if no signature file is uploaded
+                    SIGNATURE: signatureBase64 ? "%SIGNATURE" : "", 
                     PAGE_BREAK: breakXmlSnippet
                 };
             });
