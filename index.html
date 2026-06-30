@@ -269,24 +269,64 @@
         }
 
         async function processDocxTemplate(name) {
-            const response = await fetch('Claim_Template.docx');
-            if (!response.ok) throw new Error("Word Template file ('Claim_Template.docx') not found in repo root.");
-            const arrayBuffer = await response.arrayBuffer();
+    const response = await fetch('Claim_Template.docx');
+    if (!response.ok) throw new Error("Word Template file ('Claim_Template.docx') not found in repo root.");
+    const arrayBuffer = await response.arrayBuffer();
 
-            // Setup the Docx Image Insertion Engine Constraints
-            const imageOptions = {
-                centered: false,
-                getImage: function(tagValue) {
-                    // Convert raw base64 data to binary array signature formats for insertion
-                    return Uint8Array.from(atob(tagValue), c => c.charCodeAt(0));
-                },
-                getSize: function(img, tagValue, tagName) {
-                    // Maintain pristine aspect-ratio logic mapping to a max 150px layout container width
-                    const maxWidth = 150;
-                    const scaleFactor = signatureWidth > maxWidth ? maxWidth / signatureWidth : 1;
-                    return [signatureWidth * scaleFactor, signatureHeight * scaleFactor];
-                }
-            };
+    // 1. Initialize Image Module safely
+    // Note: If you are using the CDN, ensure you are using the latest version
+    const imageOptions = {
+        centered: false,
+        getImage: function(tagValue) {
+            return Uint8Array.from(atob(tagValue), c => c.charCodeAt(0));
+        },
+        getSize: function(img, tagValue, tagName) {
+            const maxWidth = 150;
+            const scaleFactor = signatureWidth > maxWidth ? maxWidth / signatureWidth : 1;
+            return [signatureWidth * scaleFactor, signatureHeight * scaleFactor];
+        }
+    };
+
+    // Correct instantiation for the current version of the library
+    const imageModule = new window.ImageModule(imageOptions);
+
+    const zip = new PizZip(arrayBuffer);
+    
+    // 2. Instantiate docxtemplater
+    const doc = new window.docxtemplater(zip, {
+        modules: [imageModule],
+        paragraphLoop: true,
+        linebreaks: true,
+    });
+
+    // 3. Map data
+    const templateItemsArray = parsedCsvData.map((row, idx) => {
+        const finalRemarks = (row.Remarks && row.Remarks.trim()) ? row.Remarks.trim() : "N/A";
+        
+        // This generates the actual XML for the page break
+        const isLastItem = idx === parsedCsvData.length - 1;
+        const breakXml = isLastItem ? "" : '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+
+        return {
+            NAME: name,
+            DATE: row.Date ? row.Date.trim() : '',
+            DESCRIPTION: row.Description ? row.Description.trim() : '',
+            AMOUNT_HKD: row.HKDAmount ? parseFloat(row.HKDAmount.trim()).toFixed(2) : '0.00',
+            REMARKS: finalRemarks,
+            SIGNATURE: signatureBase64 || "",
+            PAGE_BREAK: breakXml
+        };
+    });
+
+    // 4. Render
+    doc.render({ items: templateItemsArray });
+
+    const out = doc.getZip().generate({
+        type: "blob",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    generatedDocxBlob = out;
+}
             const imageModule = new window.ImageModule(imageOptions);
 
             const zip = new PizZip(arrayBuffer);
