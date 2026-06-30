@@ -74,6 +74,17 @@
     </div>
 
     <script>
+        // Fix for docxtemplater-image-module-free read-only namespaceURI bug
+        (function() {
+            const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'namespaceURI');
+            if (desc && desc.configurable) {
+                Object.defineProperty(Element.prototype, 'namespaceURI', {
+                    get: desc.get,
+                    set: function(val) { /* Safely ignore the assignment to prevent strict-mode crash */ },
+                    configurable: true
+                });
+            }
+        })();
         let parsedCsvData = [];
         let rawCsvFileContent = null;
         let signatureBase64 = null;
